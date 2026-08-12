@@ -6,6 +6,9 @@ type RGB = [number, number, number];
 type Pattern = { width: number; height: number; pixels: number[]; palette: RGB[]; counts: number[] };
 
 const DEMO_COLORS: RGB[] = [[247,241,225],[31,39,51],[233,92,80],[246,177,75],[105,176,139],[90,135,191]];
+const DEFAULT_BEAD_WIDTH = 80;
+const MIN_BEAD_WIDTH = 32;
+const MAX_BEAD_WIDTH = 160;
 
 function distance(a: RGB, b: RGB) {
   return (a[0]-b[0])**2 + (a[1]-b[1])**2 + (a[2]-b[2])**2;
@@ -76,7 +79,7 @@ export default function Home() {
   const [pattern,setPattern]=useState<Pattern>(()=>demoPattern());
   const [fileName,setFileName]=useState("");
   const [image,setImage]=useState<HTMLImageElement|null>(null);
-  const [beads,setBeads]=useState(36);
+  const [beads,setBeads]=useState(DEFAULT_BEAD_WIDTH);
   const [colors,setColors]=useState(12);
   const [grid,setGrid]=useState(true);
   const [labels,setLabels]=useState(false);
@@ -90,7 +93,9 @@ export default function Home() {
       const h=Math.max(8,Math.round(w*img.naturalHeight/img.naturalWidth));
       const canvas=document.createElement("canvas");canvas.width=w;canvas.height=h;
       const ctx=canvas.getContext("2d",{willReadFrequently:true});if(!ctx)return;
-      ctx.imageSmoothingEnabled=true;ctx.drawImage(img,0,0,w,h);
+      ctx.imageSmoothingEnabled=true;
+      ctx.imageSmoothingQuality="high";
+      ctx.drawImage(img,0,0,w,h);
       const {data}=ctx.getImageData(0,0,w,h);
       const q=quantize(data,colorCount);
       setPattern({width:w,height:h,pixels:q.indexes,palette:q.palette,counts:q.counts});setBusy(false);
@@ -131,7 +136,7 @@ export default function Home() {
         </button>
         <div className="panel-title settings-title"><span>02</span><div><b>调整图纸</b><small>找到细节与用量的平衡</small></div></div>
         <label className="range-label"><span>图纸宽度</span><output>{beads} 豆</output></label>
-        <input type="range" min="16" max="80" value={beads} onChange={e=>setBeads(+e.target.value)}/>
+        <input type="range" min={MIN_BEAD_WIDTH} max={MAX_BEAD_WIDTH} step="4" value={beads} onChange={e=>setBeads(+e.target.value)}/>
         <div className="range-hints"><span>简单</span><span>精细</span></div>
         <label className="range-label"><span>颜色数量</span><output>{colors} 色</output></label>
         <input type="range" min="4" max="24" value={colors} onChange={e=>setColors(+e.target.value)}/>
