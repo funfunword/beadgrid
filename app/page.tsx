@@ -9,7 +9,7 @@ type Pattern = { width: number; height: number; pixels: number[]; palette: RGB[]
 const DEMO_COLORS: RGB[] = [[253,251,255],[0,0,0],[231,0,47],[254,172,76],[53,227,82],[1,172,235]];
 const DEFAULT_BEAD_WIDTH = 80;
 const MIN_BEAD_WIDTH = 32;
-const MAX_BEAD_WIDTH = 1000;
+const MAX_BEAD_WIDTH = 168;
 const COLOR_BUCKET_BITS = 5;
 const COLOR_BUCKET_SIZE = 1 << COLOR_BUCKET_BITS;
 
