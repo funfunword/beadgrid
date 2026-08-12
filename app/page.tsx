@@ -1,18 +1,15 @@
 "use client";
 
 import { ChangeEvent, DragEvent, useCallback, useEffect, useRef, useState } from "react";
+import { COLOR_SCHEME_SIZES, getMardPalette } from "./mard-palette";
 
 type RGB = [number, number, number];
-type Pattern = { width: number; height: number; pixels: number[]; palette: RGB[]; counts: number[] };
+type Pattern = { width: number; height: number; pixels: number[]; palette: RGB[]; codes: string[]; counts: number[]; schemeSize: number };
 
-const DEMO_COLORS: RGB[] = [[247,241,225],[31,39,51],[233,92,80],[246,177,75],[105,176,139],[90,135,191]];
+const DEMO_COLORS: RGB[] = [[253,251,255],[0,0,0],[231,0,47],[254,172,76],[53,227,82],[1,172,235]];
 const DEFAULT_BEAD_WIDTH = 80;
 const MIN_BEAD_WIDTH = 32;
 const MAX_BEAD_WIDTH = 1000;
-const DEFAULT_COLOR_COUNT = 72;
-const MAX_COLOR_COUNT = 72;
-const MAX_PALETTE_SAMPLES = 20000;
-const PALETTE_PASSES = 5;
 const COLOR_BUCKET_BITS = 5;
 const COLOR_BUCKET_SIZE = 1 << COLOR_BUCKET_BITS;
 
@@ -20,28 +17,9 @@ function distance(a: RGB, b: RGB) {
   return (a[0]-b[0])**2 + (a[1]-b[1])**2 + (a[2]-b[2])**2;
 }
 
-function quantize(data: Uint8ClampedArray, count: number): { indexes: number[]; palette: RGB[]; counts: number[] } {
-  const samples: RGB[] = [];
+function quantize(data: Uint8ClampedArray, schemeSize: number): { indexes: number[]; palette: RGB[]; codes: string[]; counts: number[] } {
   const pixelCount = data.length / 4;
-  const sampleStep = Math.max(1, Math.floor(pixelCount / MAX_PALETTE_SAMPLES));
-  for (let pixel = 0; pixel < pixelCount; pixel += sampleStep) {
-    const i = pixel * 4;
-    samples.push([data[i], data[i+1], data[i+2]]);
-  }
-  const palette: RGB[] = [];
-  for (let k = 0; k < count; k++) {
-    const s = samples[Math.floor((k + .5) * samples.length / count)] || samples[0];
-    palette.push([...s]);
-  }
-  for (let pass = 0; pass < PALETTE_PASSES; pass++) {
-    const sums = palette.map(() => [0,0,0,0]);
-    for (const px of samples) {
-      let best = 0, bestD = Infinity;
-      palette.forEach((c, i) => { const d = distance(px,c); if (d < bestD) { bestD=d; best=i; } });
-      sums[best][0]+=px[0]; sums[best][1]+=px[1]; sums[best][2]+=px[2]; sums[best][3]++;
-    }
-    sums.forEach((s,i) => { if (s[3]) palette[i] = [Math.round(s[0]/s[3]),Math.round(s[1]/s[3]),Math.round(s[2]/s[3])]; });
-  }
+  const mardPalette=getMardPalette(schemeSize),palette=mardPalette.map(c=>c.rgb),codes=mardPalette.map(c=>c.code);
   const counts = palette.map(() => 0);
   const colorLookup = new Uint8Array(COLOR_BUCKET_SIZE ** 3);
   const bucketShift = 8 - COLOR_BUCKET_BITS;
@@ -60,7 +38,7 @@ function quantize(data: Uint8ClampedArray, count: number): { indexes: number[]; 
     counts[best]++;
     indexes[pixel]=best;
   }
-  return { indexes, palette, counts };
+  return { indexes, palette, codes, counts };
 }
 
 function demoPattern(): Pattern {
@@ -77,7 +55,7 @@ function demoPattern(): Pattern {
     pixels.push(c);
   }
   const counts=DEMO_COLORS.map((_,i)=>pixels.filter(p=>p===i).length);
-  return {width:w,height:h,pixels,palette:DEMO_COLORS,counts};
+  return {width:w,height:h,pixels,palette:DEMO_COLORS,codes:["H1","H7","F5","A6","B5","C5"],counts,schemeSize:72};
 }
 
 function PatternCanvas({pattern, grid=true, labels=false, exportRef}:{pattern:Pattern;grid?:boolean;labels?:boolean;exportRef?:React.RefObject<HTMLCanvasElement | null>}) {
@@ -107,7 +85,7 @@ function PatternCanvas({pattern, grid=true, labels=false, exportRef}:{pattern:Pa
       ctx.font=`600 ${Math.max(8,cell*.42)}px sans-serif`;ctx.textAlign="center";ctx.textBaseline="middle";
       pattern.pixels.forEach((pi,n)=>{
         const x=n%pattern.width,y=Math.floor(n/pattern.width),c=pattern.palette[pi];
-        ctx.fillStyle=(c[0]+c[1]+c[2])>390?"#273039":"#fff";ctx.fillText(String(pi+1),x*cell+cell/2,y*cell+cell/2);
+        ctx.fillStyle=(c[0]+c[1]+c[2])>390?"#273039":"#fff";ctx.fillText(pattern.codes[pi],x*cell+cell/2,y*cell+cell/2);
       });
     }
   },[pattern,grid,labels,ref]);
@@ -119,7 +97,9 @@ export default function Home() {
   const [fileName,setFileName]=useState("");
   const [image,setImage]=useState<HTMLImageElement|null>(null);
   const [beads,setBeads]=useState(DEFAULT_BEAD_WIDTH);
-  const [colors,setColors]=useState(DEFAULT_COLOR_COUNT);
+  const [colorSchemeIndex,setColorSchemeIndex]=useState(2);
+  const colors=COLOR_SCHEME_SIZES[colorSchemeIndex];
+  const activeSchemeSize=image?pattern.schemeSize:colors;
   const [grid,setGrid]=useState(true);
   const [labels,setLabels]=useState(false);
   const [busy,setBusy]=useState(false);
@@ -138,7 +118,7 @@ export default function Home() {
       ctx.drawImage(img,0,0,w,h);
       const {data}=ctx.getImageData(0,0,w,h);
       const q=quantize(data,colorCount);
-      setPattern({width:w,height:h,pixels:q.indexes,palette:q.palette,counts:q.counts});setBusy(false);
+      setPattern({width:w,height:h,pixels:q.indexes,palette:q.palette,codes:q.codes,counts:q.counts,schemeSize:colorCount});setBusy(false);
     });
   },[]);
 
@@ -173,7 +153,7 @@ export default function Home() {
       const addPage=(canvas:HTMLCanvasElement,first=false)=>{if(!first)pdf.addPage();pdf.addImage(canvas.toDataURL("image/png"),"PNG",0,0,210,297,undefined,"FAST");};
       const first=makePage();
       first.ctx.fillStyle="#20272b";first.ctx.font='700 42px "Microsoft YaHei",sans-serif';first.ctx.fillText("拼豆图纸",margin,82);
-      first.ctx.fillStyle="#697276";first.ctx.font='24px "Microsoft YaHei",sans-serif';first.ctx.fillText(`${pattern.width} × ${pattern.height} · ${(pattern.width*pattern.height).toLocaleString()} 颗豆 · ${pattern.palette.length} 色`,margin,126);
+      first.ctx.fillStyle="#697276";first.ctx.font='24px "Microsoft YaHei",sans-serif';first.ctx.fillText(`${pattern.width} × ${pattern.height} · ${(pattern.width*pattern.height).toLocaleString()} 颗豆 · MARD ${activeSchemeSize} 色方案`,margin,126);
       first.ctx.strokeStyle="#d9d1c2";first.ctx.lineWidth=2;first.ctx.beginPath();first.ctx.moveTo(margin,154);first.ctx.lineTo(pageW-margin,154);first.ctx.stroke();
       const maxPatternH=pageH-250,scale=Math.min(contentW/patternCanvas.width,maxPatternH/patternCanvas.height);
       const drawW=patternCanvas.width*scale,drawH=patternCanvas.height*scale,drawX=(pageW-drawW)/2,drawY=190+(maxPatternH-drawH)/2;
@@ -181,17 +161,18 @@ export default function Home() {
       first.ctx.fillStyle="#898277";first.ctx.font='20px "Microsoft YaHei",sans-serif';first.ctx.textAlign="right";first.ctx.fillText("第 1 页 · 图纸",pageW-margin,pageH-42);
       addPage(first.canvas,true);
 
+      const usedColors=pattern.palette.map((rgb,index)=>({rgb,index})).filter(({index})=>pattern.counts[index]>0);
       const columns=6,rows=12,perPage=columns*rows,cardGap=12,cardW=(contentW-cardGap*(columns-1))/columns,cardH=112;
-      for(let start=0;start<pattern.palette.length;start+=perPage){
+      for(let start=0;start<usedColors.length;start+=perPage){
         const page=makePage(),pageNumber=2+Math.floor(start/perPage);
         page.ctx.fillStyle="#20272b";page.ctx.textAlign="left";page.ctx.font='700 38px "Microsoft YaHei",sans-serif';page.ctx.fillText("配色清单",margin,78);
-        page.ctx.fillStyle="#697276";page.ctx.font='22px "Microsoft YaHei",sans-serif';page.ctx.fillText(`共 ${pattern.palette.length} 色 · 色号与图纸一一对应`,margin,116);
+        page.ctx.fillStyle="#697276";page.ctx.font='22px "Microsoft YaHei",sans-serif';page.ctx.fillText(`实际使用 ${usedColors.length} 色 · MARD ${activeSchemeSize} 色方案`,margin,116);
         page.ctx.strokeStyle="#d9d1c2";page.ctx.lineWidth=2;page.ctx.beginPath();page.ctx.moveTo(margin,145);page.ctx.lineTo(pageW-margin,145);page.ctx.stroke();
-        pattern.palette.slice(start,start+perPage).forEach((c,offset)=>{
-          const index=start+offset,col=offset%columns,row=Math.floor(offset/columns),x=margin+col*(cardW+cardGap),y=180+row*(cardH+cardGap);
+        usedColors.slice(start,start+perPage).forEach(({rgb,index},offset)=>{
+          const col=offset%columns,row=Math.floor(offset/columns),x=margin+col*(cardW+cardGap),y=180+row*(cardH+cardGap);
           page.ctx.fillStyle="#fffaf0";page.ctx.strokeStyle="#d9d1c2";page.ctx.lineWidth=2;page.ctx.beginPath();page.ctx.roundRect(x,y,cardW,cardH,10);page.ctx.fill();page.ctx.stroke();
-          page.ctx.fillStyle=`rgb(${c.join(",")})`;page.ctx.strokeStyle="#aaa297";page.ctx.beginPath();page.ctx.arc(x+32,y+38,21,0,Math.PI*2);page.ctx.fill();page.ctx.stroke();
-          page.ctx.fillStyle="#20272b";page.ctx.font='700 22px "Microsoft YaHei",sans-serif';page.ctx.fillText(String(index+1),x+62,y+39);
+          page.ctx.fillStyle=`rgb(${rgb.join(",")})`;page.ctx.strokeStyle="#aaa297";page.ctx.beginPath();page.ctx.arc(x+32,y+38,21,0,Math.PI*2);page.ctx.fill();page.ctx.stroke();
+          page.ctx.fillStyle="#20272b";page.ctx.font='700 22px "Microsoft YaHei",sans-serif';page.ctx.fillText(pattern.codes[index],x+62,y+39);
           page.ctx.fillStyle="#697276";page.ctx.font='18px "Microsoft YaHei",sans-serif';page.ctx.fillText(`${pattern.counts[index].toLocaleString()} 颗`,x+62,y+72);
         });
         page.ctx.fillStyle="#898277";page.ctx.font='20px "Microsoft YaHei",sans-serif';page.ctx.textAlign="right";page.ctx.fillText(`第 ${pageNumber} 页 · 配色清单`,pageW-margin,pageH-42);
@@ -226,8 +207,9 @@ export default function Home() {
         <label className="range-label"><span>图纸宽度</span><output>{beads} 豆</output></label>
         <input type="range" min={MIN_BEAD_WIDTH} max={MAX_BEAD_WIDTH} step="4" value={beads} onChange={e=>setBeads(+e.target.value)}/>
         <div className="range-hints"><span>简单</span><span>精细</span></div>
-        <label className="range-label"><span>颜色数量</span><output>{colors} 色</output></label>
-        <input type="range" min="4" max={MAX_COLOR_COUNT} step="4" value={colors} onChange={e=>setColors(+e.target.value)}/>
+        <label className="range-label"><span>MARD 色卡方案</span><output>{colors} 色</output></label>
+        <input aria-label="MARD 色卡方案" type="range" min="0" max={COLOR_SCHEME_SIZES.length-1} step="1" value={colorSchemeIndex} onChange={e=>setColorSchemeIndex(Number(e.target.value))}/>
+        <div className="scheme-hints">{COLOR_SCHEME_SIZES.map(size=><span key={size}>{size}</span>)}</div>
         <div className="toggles">
           <button className={grid?"active":""} onClick={()=>setGrid(v=>!v)}><i>▦</i> 网格线</button>
           <button className={labels?"active":""} onClick={()=>setLabels(v=>!v)}><i>12</i> 色号</button>
@@ -237,8 +219,8 @@ export default function Home() {
       <section className="panel preview-panel">
         <div className="preview-head"><div><span className="live-dot"></span>{fileName?"你的图纸":"示例图纸"}</div><span>{pattern.width} × {pattern.height} · {(pattern.width*pattern.height).toLocaleString()} 颗豆</span></div>
         <div className="canvas-wrap">{busy&&<div className="processing">正在重新排列豆豆…</div>}<PatternCanvas pattern={pattern} grid={grid} labels={labels} exportRef={exportRef}/></div>
-        <div className="palette-head"><b>配色清单</b><span>共 {pattern.palette.length} 色</span></div>
-        <div className="palette-list">{pattern.palette.map((c,i)=><div className="swatch" key={`${c.join()}-${i}`} title={`颜色 ${i+1}`}><span style={{background:`rgb(${c.join(",")})`}}></span><b>{i+1}</b><small>{pattern.counts[i]} 颗</small></div>)}</div>
+        <div className="palette-head"><b>配色清单</b><span>实际使用 {pattern.counts.filter(Boolean).length} / MARD {activeSchemeSize} 色</span></div>
+        <div className="palette-list">{pattern.palette.map((c,i)=>pattern.counts[i]>0&&<div className="swatch" key={pattern.codes[i]} title={`MARD ${pattern.codes[i]}`}><span style={{background:`rgb(${c.join(",")})`}}></span><b>{pattern.codes[i]}</b><small>{pattern.counts[i]} 颗</small></div>)}</div>
         <div className="actions"><button className="secondary" disabled={pdfBusy} onClick={downloadPdf}>{pdfBusy?"正在生成 PDF…":"下载 PDF 图纸"}</button><button className="primary" onClick={download}>下载高清 PNG <span>↓</span></button></div>
       </section>
     </section>
