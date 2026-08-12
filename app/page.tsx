@@ -9,7 +9,12 @@ const DEMO_COLORS: RGB[] = [[247,241,225],[31,39,51],[233,92,80],[246,177,75],[1
 const DEFAULT_BEAD_WIDTH = 80;
 const MIN_BEAD_WIDTH = 32;
 const MAX_BEAD_WIDTH = 1000;
-const MAX_PALETTE_SAMPLES = 50000;
+const DEFAULT_COLOR_COUNT = 144;
+const MAX_COLOR_COUNT = 144;
+const MAX_PALETTE_SAMPLES = 20000;
+const PALETTE_PASSES = 5;
+const COLOR_BUCKET_BITS = 5;
+const COLOR_BUCKET_SIZE = 1 << COLOR_BUCKET_BITS;
 
 function distance(a: RGB, b: RGB) {
   return (a[0]-b[0])**2 + (a[1]-b[1])**2 + (a[2]-b[2])**2;
@@ -28,7 +33,7 @@ function quantize(data: Uint8ClampedArray, count: number): { indexes: number[]; 
     const s = samples[Math.floor((k + .5) * samples.length / count)] || samples[0];
     palette.push([...s]);
   }
-  for (let pass = 0; pass < 7; pass++) {
+  for (let pass = 0; pass < PALETTE_PASSES; pass++) {
     const sums = palette.map(() => [0,0,0,0]);
     for (const px of samples) {
       let best = 0, bestD = Infinity;
@@ -38,12 +43,20 @@ function quantize(data: Uint8ClampedArray, count: number): { indexes: number[]; 
     sums.forEach((s,i) => { if (s[3]) palette[i] = [Math.round(s[0]/s[3]),Math.round(s[1]/s[3]),Math.round(s[2]/s[3])]; });
   }
   const counts = palette.map(() => 0);
+  const colorLookup = new Uint8Array(COLOR_BUCKET_SIZE ** 3);
+  const bucketShift = 8 - COLOR_BUCKET_BITS;
+  const bucketCenter = 1 << (bucketShift - 1);
+  for (let r=0;r<COLOR_BUCKET_SIZE;r++) for (let g=0;g<COLOR_BUCKET_SIZE;g++) for (let b=0;b<COLOR_BUCKET_SIZE;b++) {
+    const px: RGB = [(r<<bucketShift)+bucketCenter,(g<<bucketShift)+bucketCenter,(b<<bucketShift)+bucketCenter];
+    let best=0,bestD=Infinity;
+    palette.forEach((c,i)=>{const d=distance(px,c);if(d<bestD){bestD=d;best=i;}});
+    colorLookup[(r<<(COLOR_BUCKET_BITS*2))|(g<<COLOR_BUCKET_BITS)|b]=best;
+  }
   const indexes = new Array<number>(pixelCount);
   for (let pixel = 0; pixel < pixelCount; pixel++) {
     const i = pixel * 4;
-    const px: RGB = [data[i], data[i+1], data[i+2]];
-    let best=0, bestD=Infinity;
-    palette.forEach((c,i) => { const d=distance(px,c); if(d<bestD){bestD=d;best=i;} });
+    const key=((data[i]>>bucketShift)<<(COLOR_BUCKET_BITS*2))|((data[i+1]>>bucketShift)<<COLOR_BUCKET_BITS)|(data[i+2]>>bucketShift);
+    const best=colorLookup[key];
     counts[best]++;
     indexes[pixel]=best;
   }
@@ -106,7 +119,7 @@ export default function Home() {
   const [fileName,setFileName]=useState("");
   const [image,setImage]=useState<HTMLImageElement|null>(null);
   const [beads,setBeads]=useState(DEFAULT_BEAD_WIDTH);
-  const [colors,setColors]=useState(12);
+  const [colors,setColors]=useState(DEFAULT_COLOR_COUNT);
   const [grid,setGrid]=useState(true);
   const [labels,setLabels]=useState(false);
   const [busy,setBusy]=useState(false);
@@ -169,7 +182,7 @@ export default function Home() {
         <input type="range" min={MIN_BEAD_WIDTH} max={MAX_BEAD_WIDTH} step="4" value={beads} onChange={e=>setBeads(+e.target.value)}/>
         <div className="range-hints"><span>简单</span><span>精细</span></div>
         <label className="range-label"><span>颜色数量</span><output>{colors} 色</output></label>
-        <input type="range" min="4" max="24" value={colors} onChange={e=>setColors(+e.target.value)}/>
+        <input type="range" min="4" max={MAX_COLOR_COUNT} step="4" value={colors} onChange={e=>setColors(+e.target.value)}/>
         <div className="toggles">
           <button className={grid?"active":""} onClick={()=>setGrid(v=>!v)}><i>▦</i> 网格线</button>
           <button className={labels?"active":""} onClick={()=>setLabels(v=>!v)}><i>12</i> 色号</button>
