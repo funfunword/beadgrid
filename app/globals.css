@@ -24,6 +24,8 @@
   .workspace { grid-template-columns: 340px minmax(0, 1fr); }
 }
 
+.actions button:disabled { cursor: wait; opacity: .65; }
+
 @page { margin: 10mm; }
 
 @media print {

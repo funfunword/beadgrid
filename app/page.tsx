@@ -123,6 +123,7 @@ export default function Home() {
   const [grid,setGrid]=useState(true);
   const [labels,setLabels]=useState(false);
   const [busy,setBusy]=useState(false);
+  const [pdfBusy,setPdfBusy]=useState(false);
   const fileRef=useRef<HTMLInputElement>(null);
   const exportRef=useRef<HTMLCanvasElement>(null);
 
@@ -156,6 +157,50 @@ export default function Home() {
   function onDrop(e:DragEvent){e.preventDefault();loadFile(e.dataTransfer.files[0]);}
   function onFile(e:ChangeEvent<HTMLInputElement>){loadFile(e.target.files?.[0]);}
   function download(){const c=exportRef.current;if(!c)return;const a=document.createElement("a");a.download=`${fileName.replace(/\.[^.]+$/,"")||"拼豆图纸"}.png`;a.href=c.toDataURL("image/png");a.click();}
+
+  async function downloadPdf(){
+    const patternCanvas=exportRef.current;if(!patternCanvas||pdfBusy)return;
+    setPdfBusy(true);
+    try{
+      const {jsPDF}=await import("jspdf");
+      const pageW=1240,pageH=1754,margin=70,contentW=pageW-margin*2;
+      const makePage=()=>{
+        const canvas=document.createElement("canvas");canvas.width=pageW;canvas.height=pageH;
+        const ctx=canvas.getContext("2d");if(!ctx)throw new Error("无法创建 PDF 画布");
+        ctx.fillStyle="#fffdf8";ctx.fillRect(0,0,pageW,pageH);return {canvas,ctx};
+      };
+      const pdf=new jsPDF({orientation:"portrait",unit:"mm",format:"a4",compress:true});
+      const addPage=(canvas:HTMLCanvasElement,first=false)=>{if(!first)pdf.addPage();pdf.addImage(canvas.toDataURL("image/png"),"PNG",0,0,210,297,undefined,"FAST");};
+      const first=makePage();
+      first.ctx.fillStyle="#20272b";first.ctx.font='700 42px "Microsoft YaHei",sans-serif';first.ctx.fillText("拼豆图纸",margin,82);
+      first.ctx.fillStyle="#697276";first.ctx.font='24px "Microsoft YaHei",sans-serif';first.ctx.fillText(`${pattern.width} × ${pattern.height} · ${(pattern.width*pattern.height).toLocaleString()} 颗豆 · ${pattern.palette.length} 色`,margin,126);
+      first.ctx.strokeStyle="#d9d1c2";first.ctx.lineWidth=2;first.ctx.beginPath();first.ctx.moveTo(margin,154);first.ctx.lineTo(pageW-margin,154);first.ctx.stroke();
+      const maxPatternH=pageH-250,scale=Math.min(contentW/patternCanvas.width,maxPatternH/patternCanvas.height);
+      const drawW=patternCanvas.width*scale,drawH=patternCanvas.height*scale,drawX=(pageW-drawW)/2,drawY=190+(maxPatternH-drawH)/2;
+      first.ctx.fillStyle="#eee7da";first.ctx.fillRect(drawX-10,drawY-10,drawW+20,drawH+20);first.ctx.imageSmoothingEnabled=false;first.ctx.drawImage(patternCanvas,drawX,drawY,drawW,drawH);
+      first.ctx.fillStyle="#898277";first.ctx.font='20px "Microsoft YaHei",sans-serif';first.ctx.textAlign="right";first.ctx.fillText("第 1 页 · 图纸",pageW-margin,pageH-42);
+      addPage(first.canvas,true);
+
+      const columns=6,rows=12,perPage=columns*rows,cardGap=12,cardW=(contentW-cardGap*(columns-1))/columns,cardH=112;
+      for(let start=0;start<pattern.palette.length;start+=perPage){
+        const page=makePage(),pageNumber=2+Math.floor(start/perPage);
+        page.ctx.fillStyle="#20272b";page.ctx.textAlign="left";page.ctx.font='700 38px "Microsoft YaHei",sans-serif';page.ctx.fillText("配色清单",margin,78);
+        page.ctx.fillStyle="#697276";page.ctx.font='22px "Microsoft YaHei",sans-serif';page.ctx.fillText(`共 ${pattern.palette.length} 色 · 色号与图纸一一对应`,margin,116);
+        page.ctx.strokeStyle="#d9d1c2";page.ctx.lineWidth=2;page.ctx.beginPath();page.ctx.moveTo(margin,145);page.ctx.lineTo(pageW-margin,145);page.ctx.stroke();
+        pattern.palette.slice(start,start+perPage).forEach((c,offset)=>{
+          const index=start+offset,col=offset%columns,row=Math.floor(offset/columns),x=margin+col*(cardW+cardGap),y=180+row*(cardH+cardGap);
+          page.ctx.fillStyle="#fffaf0";page.ctx.strokeStyle="#d9d1c2";page.ctx.lineWidth=2;page.ctx.beginPath();page.ctx.roundRect(x,y,cardW,cardH,10);page.ctx.fill();page.ctx.stroke();
+          page.ctx.fillStyle=`rgb(${c.join(",")})`;page.ctx.strokeStyle="#aaa297";page.ctx.beginPath();page.ctx.arc(x+32,y+38,21,0,Math.PI*2);page.ctx.fill();page.ctx.stroke();
+          page.ctx.fillStyle="#20272b";page.ctx.font='700 22px "Microsoft YaHei",sans-serif';page.ctx.fillText(String(index+1),x+62,y+39);
+          page.ctx.fillStyle="#697276";page.ctx.font='18px "Microsoft YaHei",sans-serif';page.ctx.fillText(`${pattern.counts[index].toLocaleString()} 颗`,x+62,y+72);
+        });
+        page.ctx.fillStyle="#898277";page.ctx.font='20px "Microsoft YaHei",sans-serif';page.ctx.textAlign="right";page.ctx.fillText(`第 ${pageNumber} 页 · 配色清单`,pageW-margin,pageH-42);
+        addPage(page.canvas);
+      }
+      const base=fileName.replace(/\.[^.]+$/,"").trim()||"拼豆图纸";
+      pdf.save(`${base}.pdf`);
+    }finally{setPdfBusy(false);}
+  }
 
   return <main>
     <header className="topbar">
@@ -194,7 +239,7 @@ export default function Home() {
         <div className="canvas-wrap">{busy&&<div className="processing">正在重新排列豆豆…</div>}<PatternCanvas pattern={pattern} grid={grid} labels={labels} exportRef={exportRef}/></div>
         <div className="palette-head"><b>配色清单</b><span>共 {pattern.palette.length} 色</span></div>
         <div className="palette-list">{pattern.palette.map((c,i)=><div className="swatch" key={`${c.join()}-${i}`} title={`颜色 ${i+1}`}><span style={{background:`rgb(${c.join(",")})`}}></span><b>{i+1}</b><small>{pattern.counts[i]} 颗</small></div>)}</div>
-        <div className="actions"><button className="secondary" onClick={()=>window.print()}>打印图纸</button><button className="primary" onClick={download}>下载高清 PNG <span>↓</span></button></div>
+        <div className="actions"><button className="secondary" disabled={pdfBusy} onClick={downloadPdf}>{pdfBusy?"正在生成 PDF…":"下载 PDF 图纸"}</button><button className="primary" onClick={download}>下载高清 PNG <span>↓</span></button></div>
       </section>
     </section>
 
