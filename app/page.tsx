@@ -142,7 +142,7 @@ export default function Home() {
       </aside>
 
       <section className="panel preview-panel">
-        <div className="preview-head"><div><span className="live-dot"></span>{fileName?"你的图纸":"示例图纸"}</div><span>{pattern.width} × {pattern.height} · {pattern.width*pattern.height.toLocaleString()} 颗豆</span></div>
+        <div className="preview-head"><div><span className="live-dot"></span>{fileName?"你的图纸":"示例图纸"}</div><span>{pattern.width} × {pattern.height} · {(pattern.width*pattern.height).toLocaleString()} 颗豆</span></div>
         <div className="canvas-wrap">{busy&&<div className="processing">正在重新排列豆豆…</div>}<PatternCanvas pattern={pattern} grid={grid} labels={labels} exportRef={exportRef}/></div>
         <div className="palette-head"><b>配色清单</b><span>共 {pattern.palette.length} 色</span></div>
         <div className="palette-list">{pattern.palette.map((c,i)=><div className="swatch" key={`${c.join()}-${i}`} title={`颜色 ${i+1}`}><span style={{background:`rgb(${c.join(",")})`}}></span><b>{i+1}</b><small>{pattern.counts[i]} 颗</small></div>)}</div>
