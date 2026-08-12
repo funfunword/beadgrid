@@ -3,7 +3,21 @@
 /* Keep long palettes inside the preview column instead of widening the page. */
 @media screen {
   .preview-panel { min-width: 0; overflow: hidden; }
-  .palette-list { width: 100%; min-width: 0; max-width: 100%; overscroll-behavior-inline: contain; }
+  .palette-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
+    gap: 8px;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow: visible;
+  }
+  .palette-list .swatch {
+    min-width: 0;
+    padding: 7px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+  }
 }
 
 @media screen and (min-width: 801px) {
