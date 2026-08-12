@@ -8,7 +8,8 @@ type Pattern = { width: number; height: number; pixels: number[]; palette: RGB[]
 const DEMO_COLORS: RGB[] = [[247,241,225],[31,39,51],[233,92,80],[246,177,75],[105,176,139],[90,135,191]];
 const DEFAULT_BEAD_WIDTH = 80;
 const MIN_BEAD_WIDTH = 32;
-const MAX_BEAD_WIDTH = 160;
+const MAX_BEAD_WIDTH = 1000;
+const MAX_PALETTE_SAMPLES = 50000;
 
 function distance(a: RGB, b: RGB) {
   return (a[0]-b[0])**2 + (a[1]-b[1])**2 + (a[2]-b[2])**2;
@@ -16,7 +17,12 @@ function distance(a: RGB, b: RGB) {
 
 function quantize(data: Uint8ClampedArray, count: number): { indexes: number[]; palette: RGB[]; counts: number[] } {
   const samples: RGB[] = [];
-  for (let i = 0; i < data.length; i += 4) samples.push([data[i], data[i+1], data[i+2]]);
+  const pixelCount = data.length / 4;
+  const sampleStep = Math.max(1, Math.floor(pixelCount / MAX_PALETTE_SAMPLES));
+  for (let pixel = 0; pixel < pixelCount; pixel += sampleStep) {
+    const i = pixel * 4;
+    samples.push([data[i], data[i+1], data[i+2]]);
+  }
   const palette: RGB[] = [];
   for (let k = 0; k < count; k++) {
     const s = samples[Math.floor((k + .5) * samples.length / count)] || samples[0];
@@ -32,11 +38,15 @@ function quantize(data: Uint8ClampedArray, count: number): { indexes: number[]; 
     sums.forEach((s,i) => { if (s[3]) palette[i] = [Math.round(s[0]/s[3]),Math.round(s[1]/s[3]),Math.round(s[2]/s[3])]; });
   }
   const counts = palette.map(() => 0);
-  const indexes = samples.map(px => {
+  const indexes = new Array<number>(pixelCount);
+  for (let pixel = 0; pixel < pixelCount; pixel++) {
+    const i = pixel * 4;
+    const px: RGB = [data[i], data[i+1], data[i+2]];
     let best=0, bestD=Infinity;
     palette.forEach((c,i) => { const d=distance(px,c); if(d<bestD){bestD=d;best=i;} });
-    counts[best]++; return best;
-  });
+    counts[best]++;
+    indexes[pixel]=best;
+  }
   return { indexes, palette, counts };
 }
 
@@ -62,15 +72,31 @@ function PatternCanvas({pattern, grid=true, labels=false, exportRef}:{pattern:Pa
   const ref=exportRef || ownRef;
   useEffect(()=>{
     const canvas=ref.current;if(!canvas)return;
-    const cell=Math.max(8, Math.min(24, Math.floor(720/pattern.width)));
+    const cell=Math.max(1, Math.min(24, Math.floor(960/pattern.width)));
     canvas.width=pattern.width*cell;canvas.height=pattern.height*cell;
     const ctx=canvas.getContext("2d");if(!ctx)return;
+    const pixelCanvas=document.createElement("canvas");pixelCanvas.width=pattern.width;pixelCanvas.height=pattern.height;
+    const pixelCtx=pixelCanvas.getContext("2d");if(!pixelCtx)return;
+    const image=pixelCtx.createImageData(pattern.width,pattern.height);
     pattern.pixels.forEach((pi,n)=>{
-      const x=n%pattern.width,y=Math.floor(n/pattern.width),c=pattern.palette[pi];
-      ctx.fillStyle=`rgb(${c.join(",")})`;ctx.fillRect(x*cell,y*cell,cell,cell);
-      if(grid){ctx.strokeStyle="rgba(24,32,39,.18)";ctx.lineWidth=1;ctx.strokeRect(x*cell+.5,y*cell+.5,cell-1,cell-1)}
-      if(labels&&cell>=14){ctx.fillStyle=(c[0]+c[1]+c[2])>390?"#273039":"#fff";ctx.font=`600 ${Math.max(8,cell*.42)}px sans-serif`;ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(String(pi+1),x*cell+cell/2,y*cell+cell/2)}
+      const c=pattern.palette[pi],offset=n*4;
+      image.data[offset]=c[0];image.data[offset+1]=c[1];image.data[offset+2]=c[2];image.data[offset+3]=255;
     });
+    pixelCtx.putImageData(image,0,0);
+    ctx.imageSmoothingEnabled=false;ctx.drawImage(pixelCanvas,0,0,canvas.width,canvas.height);
+    if(grid&&cell>=4){
+      ctx.strokeStyle="rgba(24,32,39,.18)";ctx.lineWidth=1;ctx.beginPath();
+      for(let x=0;x<=pattern.width;x++){ctx.moveTo(x*cell+.5,0);ctx.lineTo(x*cell+.5,canvas.height)}
+      for(let y=0;y<=pattern.height;y++){ctx.moveTo(0,y*cell+.5);ctx.lineTo(canvas.width,y*cell+.5)}
+      ctx.stroke();
+    }
+    if(labels&&cell>=14){
+      ctx.font=`600 ${Math.max(8,cell*.42)}px sans-serif`;ctx.textAlign="center";ctx.textBaseline="middle";
+      pattern.pixels.forEach((pi,n)=>{
+        const x=n%pattern.width,y=Math.floor(n/pattern.width),c=pattern.palette[pi];
+        ctx.fillStyle=(c[0]+c[1]+c[2])>390?"#273039":"#fff";ctx.fillText(String(pi+1),x*cell+cell/2,y*cell+cell/2);
+      });
+    }
   },[pattern,grid,labels,ref]);
   return <canvas ref={ref} className="pattern-canvas" aria-label="拼豆图纸预览"/>;
 }
@@ -102,7 +128,11 @@ export default function Home() {
     });
   },[]);
 
-  useEffect(()=>{if(image)createPattern(image,beads,colors)},[image,beads,colors,createPattern]);
+  useEffect(()=>{
+    if(!image)return;
+    const timer=window.setTimeout(()=>createPattern(image,beads,colors),120);
+    return ()=>window.clearTimeout(timer);
+  },[image,beads,colors,createPattern]);
 
   function loadFile(file?:File){
     if(!file||!file.type.startsWith("image/"))return;
